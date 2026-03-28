@@ -1,5 +1,7 @@
 'use client'
 
+import { useVideoPolling } from '@/lib/hooks/useVideoPolling'
+import { useCallback } from 'react'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useVideos } from '@/lib/hooks/useVideos'
 import { signOut } from '@/app/actions/auth'
@@ -25,7 +27,20 @@ const VIDEO_STYLES = [
 
 export default function DashboardPage() {
   const { profile, creditInfo, loading: profileLoading } = useProfile()
-  const { videos, loading: videosLoading } = useVideos()
+  const { videos, loading: videosLoading, setVideos } = useVideos()
+
+  const handleStatusChange = useCallback((id: string, status: string) => {
+    setVideos(prev =>
+      prev.map(v => v.id === id ? { ...v, status } : v)
+    )
+    if (status === 'ready') {
+      showToast('🎉 영상 생성 완료! 업로드 준비가 됐습니다.')
+    } else if (status === 'failed') {
+      showToast('❌ 영상 생성에 실패했습니다.')
+    }
+  }, [])
+
+  useVideoPolling(videos, handleStatusChange)
   const [topic, setTopic] = useState('')
   const [style, setStyle] = useState('cinematic')
   const [generating, setGenerating] = useState(false)

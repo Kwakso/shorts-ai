@@ -56,5 +56,5 @@ export function useVideos() {
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  return { videos, loading }
+  return { videos, loading, setVideos }
 }
