@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/videos/poll",
+      "schedule": "* * * * *"
+    }
+  ]
+}
