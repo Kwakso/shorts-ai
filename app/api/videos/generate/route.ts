@@ -79,7 +79,8 @@ export async function POST(req: NextRequest) {
     const taskId = await submitKlingJob(script.videoPrompt)
 
     await supabase.from('videos').update({
-      sora_job_id: taskId,  // 기존 컬럼 재사용
+      sora_job_id: taskId,
+      status: 'generating',  // ← 이거 추가
       last_polled_at: new Date().toISOString(),
     }).eq('id', video.id)
 
