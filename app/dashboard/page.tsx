@@ -1,11 +1,10 @@
 'use client'
 
 import { useVideoPolling } from '@/lib/hooks/useVideoPolling'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useVideos } from '@/lib/hooks/useVideos'
 import { signOut } from '@/app/actions/auth'
-import { useState } from 'react'
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
   draft:      { label: '초안',        color: '#6B7280', bg: '#1F2937' },
@@ -17,40 +16,36 @@ const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> =
 }
 
 const VIDEO_STYLES = [
-  { value: 'cinematic',    label: '시네마틱',    emoji: '🎬' },
-  { value: 'documentary',  label: '다큐멘터리',  emoji: '📽️' },
-  { value: 'anime',        label: '애니메이션',  emoji: '✨' },
-  { value: 'realistic',    label: '실사풍',      emoji: '📸' },
-  { value: 'cartoon',      label: '카툰',        emoji: '🎨' },
-  { value: 'abstract',     label: '추상적',      emoji: '🌀' },
+  { value: 'cinematic',   label: '시네마틱',   emoji: '🎬' },
+  { value: 'documentary', label: '다큐멘터리', emoji: '📽️' },
+  { value: 'anime',       label: '애니메이션', emoji: '✨' },
+  { value: 'realistic',   label: '실사풍',     emoji: '📸' },
+  { value: 'cartoon',     label: '카툰',       emoji: '🎨' },
+  { value: 'abstract',    label: '추상적',     emoji: '🌀' },
 ]
 
 export default function DashboardPage() {
   const { profile, creditInfo, loading: profileLoading } = useProfile()
   const { videos, loading: videosLoading, setVideos } = useVideos()
-
-  const handleStatusChange = useCallback((id: string, status: string) => {
-    setVideos(prev =>
-      prev.map(v => v.id === id ? { ...v, status } : v)
-    )
-    if (status === 'ready') {
-      showToast('🎉 영상 생성 완료! 업로드 준비가 됐습니다.')
-    } else if (status === 'failed') {
-      showToast('❌ 영상 생성에 실패했습니다.')
-    }
-  }, [])
-
-  useVideoPolling(videos, handleStatusChange)
   const [topic, setTopic] = useState('')
   const [style, setStyle] = useState('cinematic')
   const [generating, setGenerating] = useState(false)
+  const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'generate' | 'videos'>('generate')
   const [toast, setToast] = useState<string | null>(null)
 
   function showToast(msg: string) {
     setToast(msg)
-    setTimeout(() => setToast(null), 3500)
+    setTimeout(() => setToast(null), 4000)
   }
+
+  const handleStatusChange = useCallback((id: string, status: string) => {
+    setVideos(prev => prev.map(v => v.id === id ? { ...v, status } : v))
+    if (status === 'ready') showToast('🎉 영상 생성 완료! 업로드 준비가 됐습니다.')
+    else if (status === 'failed') showToast('❌ 영상 생성에 실패했습니다.')
+  }, [setVideos])
+
+  useVideoPolling(videos, handleStatusChange)
 
   async function handleGenerate() {
     if (!topic.trim() || generating) return
@@ -58,7 +53,6 @@ export default function DashboardPage() {
       showToast('❌ 크레딧이 부족합니다.')
       return
     }
-
     setGenerating(true)
     try {
       const res = await fetch('/api/videos/generate', {
@@ -68,7 +62,6 @@ export default function DashboardPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-
       setTopic('')
       setActiveTab('videos')
       showToast('🚀 영상 생성이 시작되었습니다!')
@@ -76,6 +69,29 @@ export default function DashboardPage() {
       showToast(`❌ ${err instanceof Error ? err.message : '오류 발생'}`)
     } finally {
       setGenerating(false)
+    }
+  }
+
+  async function handleUpload(videoId: string) {
+    if (!profile?.yt_channel_id) {
+      showToast('❌ YouTube 채널 연동이 필요합니다. 채널 미연동 버튼을 클릭하세요.')
+      return
+    }
+    setUploadingId(videoId)
+    setVideos(prev => prev.map(v => v.id === videoId ? { ...v, status: 'uploading' } : v))
+    try {
+      const res = await fetch(`/api/videos/${videoId}/upload`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setVideos(prev => prev.map(v =>
+        v.id === videoId ? { ...v, status: 'published', youtube_url: data.youtubeUrl } : v
+      ))
+      showToast(`🎉 YouTube 업로드 완료!`)
+    } catch (err) {
+      setVideos(prev => prev.map(v => v.id === videoId ? { ...v, status: 'ready' } : v))
+      showToast(`❌ ${err instanceof Error ? err.message : '업로드 실패'}`)
+    } finally {
+      setUploadingId(null)
     }
   }
 
@@ -93,9 +109,10 @@ export default function DashboardPage() {
   const creditColor = creditPct > 50 ? '#10B981' : creditPct > 20 ? '#F59E0B' : '#EF4444'
 
   return (
-    <div className="min-h-screen bg-[#060A0F] text-gray-100 pb-16"
-      style={{ fontFamily: "'Pretendard', 'Apple SD Gothic Neo', sans-serif" }}>
-
+    <div
+      className="min-h-screen bg-[#060A0F] text-gray-100 pb-16"
+      style={{ fontFamily: "'Pretendard', 'Apple SD Gothic Neo', sans-serif" }}
+    >
       {/* Header */}
       <header className="sticky top-0 z-30 bg-[#0D1117] border-b border-[#111827] px-5 py-3 flex justify-between items-center">
         <div className="flex items-center gap-3">
@@ -110,13 +127,16 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-3">
           {/* YT 연동 상태 */}
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border ${
-            profile?.yt_channel_id
-              ? 'bg-[#0A1F17] border-green-900 text-green-400'
-              : 'bg-[#1F0A0A] border-red-900 text-red-400'
-          }`}>
-            ▶ {profile?.yt_channel_name ?? '채널 미연동'}
-          </div>
+          <a
+            href="/api/auth/youtube"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border cursor-pointer transition-colors ${
+              profile?.yt_channel_id
+                ? 'bg-[#0A1F17] border-green-900 text-green-400 hover:border-green-700'
+                : 'bg-[#1F0A0A] border-red-900 text-red-400 hover:border-red-600'
+            }`}
+          >
+            ▶ {profile?.yt_channel_name ?? '채널 미연동 — 클릭하여 연결'}
+          </a>
 
           {/* 크레딧 */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-[#1F2937] bg-[#111827]">
@@ -140,7 +160,7 @@ export default function DashboardPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 border-b border-[#111827] bg-[#0D1117]">
         {[
-          { label: '총 생성',   value: videos.length,                                    icon: '🎬' },
+          { label: '총 생성',   value: videos.length,                                       icon: '🎬' },
           { label: '처리 중',   value: videos.filter(v => v.status === 'generating').length, icon: '⚡' },
           { label: '게시 완료', value: videos.filter(v => v.status === 'published').length,  icon: '✅' },
         ].map((stat, i) => (
@@ -198,7 +218,7 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <div>
               <div className="text-base font-bold text-white">쇼츠 영상 생성</div>
-              <div className="text-xs text-gray-600 mt-1">Gemini AI + Kwai Sora2로 자동 생성</div>
+              <div className="text-xs text-gray-600 mt-1">Gemini AI + Kling으로 자동 생성</div>
             </div>
 
             <div className="bg-[#0D1117] border border-[#1F2937] rounded-xl p-5 space-y-4">
@@ -280,6 +300,7 @@ export default function DashboardPage() {
             ) : (
               videos.map(video => {
                 const s = STATUS_MAP[video.status] ?? STATUS_MAP.draft
+                const isUploading = uploadingId === video.id
                 return (
                   <div
                     key={video.id}
@@ -305,12 +326,43 @@ export default function DashboardPage() {
                       </span>
                     </div>
 
+                    {/* 업로드 대기 버튼 */}
+                    {video.status === 'ready' && (
+                      <button
+                        onClick={() => handleUpload(video.id)}
+                        disabled={isUploading}
+                        className="w-full py-2 rounded-lg text-xs font-semibold border transition-all disabled:opacity-50"
+                        style={{
+                          color: '#60A5FA',
+                          background: '#0F1C2E',
+                          borderColor: '#3B82F633',
+                        }}
+                      >
+                        ▲ YouTube 쇼츠로 업로드
+                      </button>
+                    )}
+
+                    {/* 업로드 중 */}
+                    {video.status === 'uploading' && (
+                      <div
+                        className="w-full py-2 rounded-lg text-xs font-semibold border text-center"
+                        style={{ color: '#A78BFA', background: '#1A0F2E', borderColor: '#8B5CF633' }}
+                      >
+                        ⟳ YouTube 업로드 중...
+                      </div>
+                    )}
+
+                    {/* 게시 완료 */}
                     {video.status === 'published' && video.youtube_url && (
-                    <a href={video.youtube_url} target="_blank" rel="noreferrer"
+                      <a
+                        href={video.youtube_url}
+                        target="_blank"
+                        rel="noreferrer"
                         className="block text-center py-2 rounded-lg text-xs font-semibold border"
-                        style={{ color: '#34D399', background: '#0A1F17', borderColor: '#10B98133' }}>
+                        style={{ color: '#34D399', background: '#0A1F17', borderColor: '#10B98133' }}
+                      >
                         ↗ YouTube에서 보기
-                    </a>
+                      </a>
                     )}
                   </div>
                 )
@@ -322,7 +374,7 @@ export default function DashboardPage() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#111827] border border-[#1F2937] rounded-xl px-5 py-2.5 text-sm text-gray-200 shadow-2xl z-50 whitespace-nowrap animate-fade-in">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#111827] border border-[#1F2937] rounded-xl px-5 py-2.5 text-sm text-gray-200 shadow-2xl z-50 whitespace-nowrap">
           {toast}
         </div>
       )}
