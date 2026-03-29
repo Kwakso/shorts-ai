@@ -33,6 +33,7 @@ export default function DashboardPage() {
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'generate' | 'videos'>('generate')
   const [toast, setToast] = useState<string | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
 
   function showToast(msg: string) {
     setToast(msg)
@@ -86,7 +87,7 @@ export default function DashboardPage() {
       setVideos(prev => prev.map(v =>
         v.id === videoId ? { ...v, status: 'published', youtube_url: data.youtubeUrl } : v
       ))
-      showToast(`🎉 YouTube 업로드 완료!`)
+      showToast('🎉 YouTube 업로드 완료!')
     } catch (err) {
       setVideos(prev => prev.map(v => v.id === videoId ? { ...v, status: 'ready' } : v))
       showToast(`❌ ${err instanceof Error ? err.message : '업로드 실패'}`)
@@ -222,7 +223,6 @@ export default function DashboardPage() {
             </div>
 
             <div className="bg-[#0D1117] border border-[#1F2937] rounded-xl p-5 space-y-4">
-              {/* 주제 입력 */}
               <div>
                 <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">주제 입력</label>
                 <textarea
@@ -234,7 +234,6 @@ export default function DashboardPage() {
                 />
               </div>
 
-              {/* 스타일 선택 */}
               <div>
                 <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">영상 스타일</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -255,7 +254,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* 생성 버튼 */}
               <button
                 onClick={handleGenerate}
                 disabled={generating || !topic.trim() || balance < 1}
@@ -301,69 +299,93 @@ export default function DashboardPage() {
               videos.map(video => {
                 const s = STATUS_MAP[video.status] ?? STATUS_MAP.draft
                 const isUploading = uploadingId === video.id
+                const isPreviewOpen = previewId === video.id
                 return (
                   <div
                     key={video.id}
-                    className="bg-[#111827] border border-[#1F2937] rounded-xl p-4 space-y-2 hover:border-[#374151] transition-colors"
+                    className="bg-[#111827] border border-[#1F2937] rounded-xl overflow-hidden hover:border-[#374151] transition-colors"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-[#1F2937] flex items-center justify-center text-xl flex-shrink-0">
-                        🎬
+                    {/* 영상 미리보기 */}
+                    {isPreviewOpen && video.storage_url && (
+                      <div className="bg-black w-full flex items-center justify-center">
+                        <video
+                          src={video.storage_url}
+                          controls
+                          autoPlay
+                          playsInline
+                          className="w-full object-contain"
+                          style={{ maxHeight: 300 }}
+                        />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-gray-200 truncate">
-                          {video.title ?? video.topic}
+                    )}
+
+                    <div className="p-4 space-y-2">
+                      <div className="flex items-start gap-3">
+                        {/* 미리보기 토글 버튼 */}
+                        <button
+                          onClick={() => video.storage_url && setPreviewId(isPreviewOpen ? null : video.id)}
+                          className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl flex-shrink-0 transition-colors ${
+                            video.storage_url
+                              ? 'bg-blue-900 hover:bg-blue-800 cursor-pointer'
+                              : 'bg-[#1F2937] cursor-default'
+                          }`}
+                          title={video.storage_url ? (isPreviewOpen ? '닫기' : '미리보기') : ''}
+                        >
+                          {video.storage_url ? (isPreviewOpen ? '⏸' : '▶') : '🎬'}
+                        </button>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-gray-200 truncate">
+                            {video.title ?? video.topic}
+                          </div>
+                          <div className="text-[11px] text-gray-600 mt-0.5">
+                            {video.style} · {new Date(video.created_at).toLocaleDateString('ko-KR')}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-gray-600 mt-0.5">
-                          {video.style} · {new Date(video.created_at).toLocaleDateString('ko-KR')}
-                        </div>
+
+                        <span
+                          className="text-[11px] font-semibold px-2.5 py-1 rounded-full border flex-shrink-0"
+                          style={{ color: s.color, background: s.bg, borderColor: `${s.color}33` }}
+                        >
+                          {video.status === 'generating' && '● '}{s.label}
+                        </span>
                       </div>
-                      <span
-                        className="text-[11px] font-semibold px-2.5 py-1 rounded-full border flex-shrink-0"
-                        style={{ color: s.color, background: s.bg, borderColor: `${s.color}33` }}
-                      >
-                        {video.status === 'generating' && '● '}{s.label}
-                      </span>
+
+                      {/* 업로드 대기 버튼 */}
+                      {video.status === 'ready' && (
+                        <button
+                          onClick={() => handleUpload(video.id)}
+                          disabled={isUploading}
+                          className="w-full py-2 rounded-lg text-xs font-semibold border transition-all disabled:opacity-50 hover:bg-blue-900"
+                          style={{ color: '#60A5FA', background: '#0F1C2E', borderColor: '#3B82F633' }}
+                        >
+                          ▲ YouTube 쇼츠로 업로드
+                        </button>
+                      )}
+
+                      {/* 업로드 중 */}
+                      {video.status === 'uploading' && (
+                        <div
+                          className="w-full py-2 rounded-lg text-xs font-semibold border text-center"
+                          style={{ color: '#A78BFA', background: '#1A0F2E', borderColor: '#8B5CF633' }}
+                        >
+                          ⟳ YouTube 업로드 중...
+                        </div>
+                      )}
+
+                      {/* 게시 완료 */}
+                      {video.status === 'published' && video.youtube_url && (
+                        <a
+                          href={video.youtube_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block text-center py-2 rounded-lg text-xs font-semibold border hover:opacity-80 transition-opacity"
+                          style={{ color: '#34D399', background: '#0A1F17', borderColor: '#10B98133' }}
+                        >
+                          ↗ YouTube에서 보기
+                        </a>
+                      )}
                     </div>
-
-                    {/* 업로드 대기 버튼 */}
-                    {video.status === 'ready' && (
-                      <button
-                        onClick={() => handleUpload(video.id)}
-                        disabled={isUploading}
-                        className="w-full py-2 rounded-lg text-xs font-semibold border transition-all disabled:opacity-50"
-                        style={{
-                          color: '#60A5FA',
-                          background: '#0F1C2E',
-                          borderColor: '#3B82F633',
-                        }}
-                      >
-                        ▲ YouTube 쇼츠로 업로드
-                      </button>
-                    )}
-
-                    {/* 업로드 중 */}
-                    {video.status === 'uploading' && (
-                      <div
-                        className="w-full py-2 rounded-lg text-xs font-semibold border text-center"
-                        style={{ color: '#A78BFA', background: '#1A0F2E', borderColor: '#8B5CF633' }}
-                      >
-                        ⟳ YouTube 업로드 중...
-                      </div>
-                    )}
-
-                    {/* 게시 완료 */}
-                    {video.status === 'published' && video.youtube_url && (
-                      <a
-                        href={video.youtube_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block text-center py-2 rounded-lg text-xs font-semibold border"
-                        style={{ color: '#34D399', background: '#0A1F17', borderColor: '#10B98133' }}
-                      >
-                        ↗ YouTube에서 보기
-                      </a>
-                    )}
                   </div>
                 )
               })

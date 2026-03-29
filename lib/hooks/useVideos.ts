@@ -8,6 +8,7 @@ export interface Video {
   status: string
   title: string | null
   youtube_url: string | null
+  storage_url: string | null  // ← 추가
   created_at: string
   polling_attempts: number
 }
