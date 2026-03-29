@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     })
 
     // 6. Gemini 스크립트 생성
-    /*await supabase.from('videos').update({ status: 'generating' }).eq('id', video.id)
+    await supabase.from('videos').update({ status: 'generating' }).eq('id', video.id)
     const script = await generateVideoScript(topic, style, language)
 
     await supabase.from('videos').update({
@@ -64,16 +64,16 @@ export async function POST(req: NextRequest) {
       script: script.script,
       video_prompt: script.videoPrompt,
       tags: script.tags,
-    }).eq('id', video.id)*/
+    }).eq('id', video.id)
 
     // 6. Gemini 스크립트 생성 (임시 Mock - 할당량 초과로 인해)
-    const script = {
+    /*const script = {
       title: `${topic} #Shorts`,
       description: `${topic}에 관한 흥미로운 쇼츠 영상입니다. #Shorts #YouTubeShorts`,
       script: `${topic}에 대해 알아봅시다.`,
       videoPrompt: `A ${style} style vertical 9:16 short video about ${topic}. High quality, cinematic.`,
       tags: ['Shorts', 'YouTubeShorts', style],
-    }
+    }*/
 
     // 7. Kling 영상 생성 요청
     const taskId = await submitKlingJob(script.videoPrompt)
