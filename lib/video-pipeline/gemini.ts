@@ -24,20 +24,19 @@ export async function generateVideoScript(
     },
   })
 
-  const prompt = `당신은 YouTube Shorts 전문 콘텐츠 크리에이터이자 AI 영상 프롬프트 전문가입니다.
-다음 주제로 바이럴 가능성이 높은 ${style} 스타일의 쇼츠 콘텐츠를 만들어주세요.
+  const prompt = `당신은 YouTube Shorts 콘텐츠 크리에이터입니다.
+    주제: "${topic}"
+    스타일: ${style}
+    언어: ${language === 'ko' ? '한국어' : 'English'}
 
-주제: "${topic}"
-언어: ${language === 'ko' ? '한국어' : 'English'}
-
-아래 JSON 형식으로만 응답하세요:
-{
-  "title": "클릭을 유도하는 흥미로운 제목 (최대 80자, #Shorts 포함)",
-  "description": "영상 설명 (최대 400자, 관련 해시태그 5개 이상 포함)",
-  "script": "30~45초 분량의 자연스러운 나레이션 스크립트. 첫 3초가 핵심이어야 함.",
-  "videoPrompt": "Vertical 9:16 format. ${style} style. Ultra detailed cinematic AI video generation prompt in English. Describe: main subject, lighting, camera movement, color grading, background, mood, visual details. Minimum 80 words.",
-  "tags": ["한국어태그1", "한국어태그2", "Shorts", "YouTubeShorts", "쇼츠"]
-}`
+    아래 JSON만 출력하세요. 각 필드 글자수를 반드시 지켜주세요:
+    {
+      "title": "제목 (50자 이내, #Shorts 포함)",
+      "description": "설명 (200자 이내, 해시태그 3개 포함)",
+      "script": "나레이션 (100자 이내로 짧게)",
+      "videoPrompt": "English prompt for AI video. ${style} style. Vertical 9:16. 50 words max.",
+      "tags": ["태그1", "태그2", "Shorts", "YouTubeShorts"]
+    }`
 
   const result = await model.generateContent(prompt)
   const text = result.response.text().replace(/```json|```/g, '').trim()
