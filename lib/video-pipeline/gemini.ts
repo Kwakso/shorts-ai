@@ -15,7 +15,7 @@ export async function generateVideoScript(
   style: string,
   language: string = 'ko'
 ): Promise<ScriptResult> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-preview-04-17' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const prompt = `
 당신은 YouTube Shorts 전문 콘텐츠 크리에이터입니다.
