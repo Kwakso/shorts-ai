@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateVideoScript } from '@/lib/video-pipeline/gemini'
 import { submitKlingJob } from '@/lib/video-pipeline/kling'
+import { generateTTS } from '@/lib/video-pipeline/tts'
+import { createClient as createSupabaseAdmin } from '@supabase/supabase-js'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -66,21 +68,48 @@ export async function POST(req: NextRequest) {
       tags: script.tags,
     }).eq('id', video.id)
 
-    // 6. Gemini 스크립트 생성 (임시 Mock - 할당량 초과로 인해)
-    /*const script = {
-      title: `${topic} #Shorts`,
-      description: `${topic}에 관한 흥미로운 쇼츠 영상입니다. #Shorts #YouTubeShorts`,
-      script: `${topic}에 대해 알아봅시다.`,
-      videoPrompt: `A ${style} style vertical 9:16 short video about ${topic}. High quality, cinematic.`,
-      tags: ['Shorts', 'YouTubeShorts', style],
-    }*/
+    // 7. TTS 음성 생성
+    let audioUrl: string | null = null
+    try {
+      const { audioBuffer } = await generateTTS(script.script, language)
 
-    // 7. Kling 영상 생성 요청
+      const adminSupabase = createSupabaseAdmin(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      )
+
+      const audioFileName = `${video.id}.mp3`
+      const { error: uploadError } = await adminSupabase.storage
+        .from('audio')
+        .upload(audioFileName, audioBuffer, {
+          contentType: 'audio/mpeg',
+          upsert: true,
+        })
+
+      if (!uploadError) {
+        const { data: urlData } = adminSupabase.storage
+          .from('audio')
+          .getPublicUrl(audioFileName)
+        audioUrl = urlData.publicUrl
+
+        // audio_url DB 저장
+        await supabase.from('videos')
+          .update({ audio_url: audioUrl })
+          .eq('id', video.id)
+
+        console.log('[TTS] 음성 생성 완료:', audioUrl)
+      }
+    } catch (ttsErr) {
+      console.error('[TTS 생성 실패]', ttsErr)
+      // TTS 실패해도 영상 생성은 계속 진행
+    }
+
+    // 8. Kling 영상 생성 요청
     const taskId = await submitKlingJob(script.videoPrompt)
 
     await supabase.from('videos').update({
       sora_job_id: taskId,
-      status: 'generating',  // ← 이거 추가
+      status: 'generating',
       last_polled_at: new Date().toISOString(),
     }).eq('id', video.id)
 
@@ -88,6 +117,7 @@ export async function POST(req: NextRequest) {
       success: true,
       videoId: video.id,
       taskId,
+      audioUrl,
       message: '영상 생성이 시작되었습니다!',
     })
 
