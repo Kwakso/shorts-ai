@@ -35,7 +35,7 @@ export async function submitKlingJob(videoPrompt: string): Promise<string> {
       cfg_scale: 0.5,
       mode: 'std',
       aspect_ratio: '9:16',
-      duration: '5',
+      duration: '10',
     }),
     signal: AbortSignal.timeout(30_000),
   })

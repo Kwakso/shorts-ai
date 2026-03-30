@@ -1,11 +1,23 @@
 'use client'
 
 import { useVideoPolling } from '@/lib/hooks/useVideoPolling'
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useVideos } from '@/lib/hooks/useVideos'
 import { signOut } from '@/app/actions/auth'
+import { createClient } from '@/lib/supabase/client'
 
+// ─── Types ────────────────────────────────────────────────────
+interface YoutubeChannel {
+  id: string
+  channel_id: string
+  channel_name: string
+  channel_thumbnail: string | null
+  is_default: boolean
+  created_at: string
+}
+
+// ─── Constants ────────────────────────────────────────────────
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
   draft:      { label: '초안',        color: '#6B7280', bg: '#1F2937' },
   generating: { label: '생성 중…',    color: '#F59E0B', bg: '#1C1A0F' },
@@ -24,17 +36,48 @@ const VIDEO_STYLES = [
   { value: 'abstract',    label: '추상적',     emoji: '🌀' },
 ]
 
+// ─── Main Component ───────────────────────────────────────────
 export default function DashboardPage() {
   const { profile, creditInfo, loading: profileLoading } = useProfile()
   const { videos, loading: videosLoading, setVideos } = useVideos()
+
   const [topic, setTopic] = useState('')
   const [style, setStyle] = useState('cinematic')
   const [generating, setGenerating] = useState(false)
   const [uploadingId, setUploadingId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'generate' | 'videos'>('generate')
+  const [activeTab, setActiveTab] = useState<'generate' | 'videos' | 'channels'>('generate')
   const [toast, setToast] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
 
+  // 채널 관련 state
+  const [channels, setChannels] = useState<YoutubeChannel[]>([])
+  const [channelsLoading, setChannelsLoading] = useState(true)
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null)
+
+  // ─── 채널 로드 ────────────────────────────────────────────
+  useEffect(() => {
+    async function fetchChannels() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data } = await supabase
+        .from('youtube_channels')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+
+      setChannels(data ?? [])
+      setChannelsLoading(false)
+
+      // 기본 채널 자동 선택
+      const defaultCh = data?.find(c => c.is_default)
+      if (defaultCh) setSelectedChannelId(defaultCh.id)
+    }
+    fetchChannels()
+  }, [])
+
+  // ─── 유틸 ────────────────────────────────────────────────
   function showToast(msg: string) {
     setToast(msg)
     setTimeout(() => setToast(null), 4000)
@@ -48,6 +91,7 @@ export default function DashboardPage() {
 
   useVideoPolling(videos, handleStatusChange)
 
+  // ─── 영상 생성 ───────────────────────────────────────────
   async function handleGenerate() {
     if (!topic.trim() || generating) return
     if ((creditInfo?.balance ?? 0) < 1) {
@@ -73,15 +117,20 @@ export default function DashboardPage() {
     }
   }
 
+  // ─── YouTube 업로드 ──────────────────────────────────────
   async function handleUpload(videoId: string) {
-    if (!profile?.yt_channel_id) {
-      showToast('❌ YouTube 채널 연동이 필요합니다. 채널 미연동 버튼을 클릭하세요.')
+    if (channels.length === 0 && !profile?.yt_channel_id) {
+      showToast('❌ YouTube 채널 연동이 필요합니다.')
       return
     }
     setUploadingId(videoId)
     setVideos(prev => prev.map(v => v.id === videoId ? { ...v, status: 'uploading' } : v))
     try {
-      const res = await fetch(`/api/videos/${videoId}/upload`, { method: 'POST' })
+      const res = await fetch(`/api/videos/${videoId}/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: selectedChannelId }),
+      })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       setVideos(prev => prev.map(v =>
@@ -96,6 +145,34 @@ export default function DashboardPage() {
     }
   }
 
+  // ─── 채널 관리 ───────────────────────────────────────────
+  async function handleSetDefault(channelId: string) {
+    const res = await fetch('/api/channels', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId }),
+    })
+    if (res.ok) {
+      setChannels(prev => prev.map(c => ({ ...c, is_default: c.id === channelId })))
+      setSelectedChannelId(channelId)
+      showToast('✅ 기본 채널이 변경되었습니다.')
+    }
+  }
+
+  async function handleDeleteChannel(channelId: string) {
+    const res = await fetch('/api/channels', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelId }),
+    })
+    if (res.ok) {
+      setChannels(prev => prev.filter(c => c.id !== channelId))
+      if (selectedChannelId === channelId) setSelectedChannelId(null)
+      showToast('🗑 채널이 삭제되었습니다.')
+    }
+  }
+
+  // ─── 로딩 ────────────────────────────────────────────────
   if (profileLoading) {
     return (
       <div className="min-h-screen bg-[#060A0F] flex items-center justify-center">
@@ -108,13 +185,14 @@ export default function DashboardPage() {
   const maxCredits = creditInfo?.monthly_credit_limit ?? 10
   const creditPct = (balance / maxCredits) * 100
   const creditColor = creditPct > 50 ? '#10B981' : creditPct > 20 ? '#F59E0B' : '#EF4444'
+  const defaultChannel = channels.find(c => c.is_default) ?? channels[0]
 
   return (
     <div
       className="min-h-screen bg-[#060A0F] text-gray-100 pb-16"
       style={{ fontFamily: "'Pretendard', 'Apple SD Gothic Neo', sans-serif" }}
     >
-      {/* Header */}
+      {/* ── Header ── */}
       <header className="sticky top-0 z-30 bg-[#0D1117] border-b border-[#111827] px-5 py-3 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-700 flex items-center justify-center text-sm font-bold">
@@ -127,16 +205,16 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* YT 연동 상태 */}
+          {/* 채널 상태 */}
           <a
             href="/api/auth/youtube"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border cursor-pointer transition-colors ${
-              profile?.yt_channel_id
+              defaultChannel || profile?.yt_channel_id
                 ? 'bg-[#0A1F17] border-green-900 text-green-400 hover:border-green-700'
                 : 'bg-[#1F0A0A] border-red-900 text-red-400 hover:border-red-600'
             }`}
           >
-            ▶ {profile?.yt_channel_name ?? '채널 미연동 — 클릭하여 연결'}
+            ▶ {defaultChannel?.channel_name ?? profile?.yt_channel_name ?? '채널 미연동 — 클릭하여 연결'}
           </a>
 
           {/* 크레딧 */}
@@ -145,7 +223,7 @@ export default function DashboardPage() {
             <span className="text-gray-600">/ {maxCredits}</span>
           </div>
 
-          {/* 아바타 + 로그아웃 */}
+          {/* 로그아웃 */}
           <form action={signOut}>
             <button
               type="submit"
@@ -158,7 +236,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Stats */}
+      {/* ── Stats ── */}
       <div className="grid grid-cols-3 border-b border-[#111827] bg-[#0D1117]">
         {[
           { label: '총 생성',   value: videos.length,                                       icon: '🎬' },
@@ -172,7 +250,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Credit Bar */}
+      {/* ── Credit Bar ── */}
       <div className="px-5 py-3 bg-[#0D1117] border-b border-[#111827]">
         <div className="flex justify-between items-center mb-1.5">
           <span className="text-[10px] text-gray-600 uppercase tracking-widest">크레딧</span>
@@ -191,11 +269,12 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Tab Nav */}
+      {/* ── Tab Nav ── */}
       <div className="flex px-5 bg-[#0D1117] border-b border-[#111827]">
         {([
           { id: 'generate', label: '새 영상 생성' },
           { id: 'videos',   label: `내 영상 (${videos.length})` },
+          { id: 'channels', label: `채널 (${channels.length})` },
         ] as const).map(tab => (
           <button
             key={tab.id}
@@ -211,10 +290,10 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Content */}
+      {/* ── Content ── */}
       <div className="px-5 pt-5">
 
-        {/* Generate Tab */}
+        {/* ── Generate Tab ── */}
         {activeTab === 'generate' && (
           <div className="space-y-4">
             <div>
@@ -223,6 +302,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="bg-[#0D1117] border border-[#1F2937] rounded-xl p-5 space-y-4">
+              {/* 주제 입력 */}
               <div>
                 <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">주제 입력</label>
                 <textarea
@@ -234,6 +314,7 @@ export default function DashboardPage() {
                 />
               </div>
 
+              {/* 스타일 선택 */}
               <div>
                 <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">영상 스타일</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -254,6 +335,25 @@ export default function DashboardPage() {
                 </div>
               </div>
 
+              {/* 채널 선택 (채널이 2개 이상일 때만 표시) */}
+              {channels.length > 1 && (
+                <div>
+                  <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">업로드 채널</label>
+                  <select
+                    value={selectedChannelId ?? ''}
+                    onChange={e => setSelectedChannelId(e.target.value)}
+                    className="w-full bg-[#111827] border border-[#1F2937] rounded-lg px-3 py-2.5 text-sm text-gray-200 outline-none focus:border-[#374151] transition-colors"
+                  >
+                    {channels.map(ch => (
+                      <option key={ch.id} value={ch.id}>
+                        {ch.channel_name} {ch.is_default ? '(기본)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 생성 버튼 */}
               <button
                 onClick={handleGenerate}
                 disabled={generating || !topic.trim() || balance < 1}
@@ -273,7 +373,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Videos Tab */}
+        {/* ── Videos Tab ── */}
         {activeTab === 'videos' && (
           <div className="space-y-3">
             <div>
@@ -288,10 +388,7 @@ export default function DashboardPage() {
                 <div className="text-3xl mb-3">🎬</div>
                 아직 생성된 영상이 없습니다
                 <br />
-                <button
-                  onClick={() => setActiveTab('generate')}
-                  className="mt-3 text-blue-500 text-xs underline"
-                >
+                <button onClick={() => setActiveTab('generate')} className="mt-3 text-blue-500 text-xs underline">
                   첫 영상 생성하기 →
                 </button>
               </div>
@@ -321,7 +418,6 @@ export default function DashboardPage() {
 
                     <div className="p-4 space-y-2">
                       <div className="flex items-start gap-3">
-                        {/* 미리보기 토글 버튼 */}
                         <button
                           onClick={() => video.storage_url && setPreviewId(isPreviewOpen ? null : video.id)}
                           className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl flex-shrink-0 transition-colors ${
@@ -329,7 +425,6 @@ export default function DashboardPage() {
                               ? 'bg-blue-900 hover:bg-blue-800 cursor-pointer'
                               : 'bg-[#1F2937] cursor-default'
                           }`}
-                          title={video.storage_url ? (isPreviewOpen ? '닫기' : '미리보기') : ''}
                         >
                           {video.storage_url ? (isPreviewOpen ? '⏸' : '▶') : '🎬'}
                         </button>
@@ -392,9 +487,94 @@ export default function DashboardPage() {
             )}
           </div>
         )}
+
+        {/* ── Channels Tab ── */}
+        {activeTab === 'channels' && (
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-base font-bold text-white">YouTube 채널 관리</div>
+                <div className="text-xs text-gray-600 mt-1">채널을 추가하고 기본 채널을 설정하세요</div>
+              </div>
+              <a
+                href="/api/auth/youtube"
+                className="px-3 py-2 rounded-lg text-xs font-semibold bg-[#0F1C2E] border border-blue-900 text-blue-400 hover:border-blue-600 transition-colors"
+              >
+                + 채널 추가
+              </a>
+            </div>
+
+            {channelsLoading ? (
+              <div className="text-center py-10 text-gray-600 text-sm animate-pulse">로딩 중...</div>
+            ) : channels.length === 0 ? (
+              <div className="text-center py-12 text-gray-600 text-sm">
+                <div className="text-3xl mb-3">📺</div>
+                연동된 채널이 없습니다
+                <br />
+                <a href="/api/auth/youtube" className="mt-3 text-blue-500 text-xs underline block">
+                  채널 추가하기 →
+                </a>
+              </div>
+            ) : (
+              channels.map(channel => (
+                <div
+                  key={channel.id}
+                  className={`bg-[#111827] border rounded-xl p-4 flex items-center gap-3 transition-colors ${
+                    selectedChannelId === channel.id
+                      ? 'border-blue-700'
+                      : 'border-[#1F2937] hover:border-[#374151]'
+                  }`}
+                  onClick={() => setSelectedChannelId(channel.id)}
+                >
+                  {channel.channel_thumbnail ? (
+                    <img
+                      src={channel.channel_thumbnail}
+                      alt={channel.channel_name}
+                      className="w-10 h-10 rounded-full flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-[#1F2937] flex items-center justify-center text-xl flex-shrink-0">
+                      📺
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-gray-200 truncate">
+                      {channel.channel_name}
+                    </div>
+                    <div className="text-[11px] text-gray-600 mt-0.5 truncate">
+                      {channel.channel_id}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {channel.is_default ? (
+                      <span className="text-[11px] px-2 py-1 rounded-full bg-[#0A1F17] border border-green-900 text-green-400">
+                        기본
+                      </span>
+                    ) : (
+                      <button
+                        onClick={e => { e.stopPropagation(); handleSetDefault(channel.id) }}
+                        className="text-[11px] px-2 py-1 rounded-full border border-[#1F2937] text-gray-600 hover:border-blue-900 hover:text-blue-400 transition-colors"
+                      >
+                        기본 설정
+                      </button>
+                    )}
+                    <button
+                      onClick={e => { e.stopPropagation(); handleDeleteChannel(channel.id) }}
+                      className="text-[11px] px-2 py-1 rounded-full border border-[#1F2937] text-gray-600 hover:border-red-900 hover:text-red-400 transition-colors"
+                    >
+                      삭제
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Toast */}
+      {/* ── Toast ── */}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#111827] border border-[#1F2937] rounded-xl px-5 py-2.5 text-sm text-gray-200 shadow-2xl z-50 whitespace-nowrap">
           {toast}
