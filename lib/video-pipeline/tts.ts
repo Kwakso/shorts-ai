@@ -13,7 +13,7 @@ export async function generateTTS(
   language: string = 'ko'
 ): Promise<TTSResult> {
   const languageCode = language === 'ko' ? 'ko-KR' : 'en-US'
-  const voiceName = language === 'ko' ? 'ko-KR-Neural2-C' : 'en-US-Neural2-F'
+  const voiceName = language === 'ko' ? 'ko-KR-Neural2-A' : 'en-US-Neural2-F'
 
   const [response] = await client.synthesizeSpeech({
     input: { text },
