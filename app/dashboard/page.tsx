@@ -17,6 +17,12 @@ interface YoutubeChannel {
   created_at: string
 }
 
+interface BatchResult {
+  topic: string
+  success: boolean
+  error?: string
+}
+
 // ─── Constants ────────────────────────────────────────────────
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
   draft:      { label: '초안',        color: '#6B7280', bg: '#1F2937' },
@@ -41,6 +47,7 @@ export default function DashboardPage() {
   const { profile, creditInfo, loading: profileLoading } = useProfile()
   const { videos, loading: videosLoading, setVideos } = useVideos()
 
+  // 기본 state
   const [topic, setTopic] = useState('')
   const [style, setStyle] = useState('cinematic')
   const [generating, setGenerating] = useState(false)
@@ -49,7 +56,18 @@ export default function DashboardPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
 
-  // 채널 관련 state
+  // 배치 생성 state
+  const [batchMode, setBatchMode] = useState(false)
+  const [batchTopics, setBatchTopics] = useState('')
+  const [batchGenerating, setBatchGenerating] = useState(false)
+  const [batchResult, setBatchResult] = useState<{
+    total: number
+    successCount: number
+    failCount: number
+    results: BatchResult[]
+  } | null>(null)
+
+  // 채널 state
   const [channels, setChannels] = useState<YoutubeChannel[]>([])
   const [channelsLoading, setChannelsLoading] = useState(true)
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null)
@@ -70,7 +88,6 @@ export default function DashboardPage() {
       setChannels(data ?? [])
       setChannelsLoading(false)
 
-      // 기본 채널 자동 선택
       const defaultCh = data?.find(c => c.is_default)
       if (defaultCh) setSelectedChannelId(defaultCh.id)
     }
@@ -91,10 +108,10 @@ export default function DashboardPage() {
 
   useVideoPolling(videos, handleStatusChange)
 
-  // ─── 영상 생성 ───────────────────────────────────────────
+  // ─── 단일 영상 생성 ──────────────────────────────────────
   async function handleGenerate() {
     if (!topic.trim() || generating) return
-    if ((creditInfo?.balance ?? 0) < 1) {
+    if (balance < 1) {
       showToast('❌ 크레딧이 부족합니다.')
       return
     }
@@ -114,6 +131,55 @@ export default function DashboardPage() {
       showToast(`❌ ${err instanceof Error ? err.message : '오류 발생'}`)
     } finally {
       setGenerating(false)
+    }
+  }
+
+  // ─── 배치 영상 생성 ──────────────────────────────────────
+  async function handleBatchGenerate() {
+    const topics = batchTopics
+      .split('\n')
+      .map(t => t.trim())
+      .filter(t => t.length > 0)
+
+    if (topics.length === 0) {
+      showToast('❌ 주제를 입력해 주세요.')
+      return
+    }
+    if (topics.length > 20) {
+      showToast('❌ 한 번에 최대 20개까지 가능합니다.')
+      return
+    }
+    if (balance < topics.length) {
+      showToast(`❌ 크레딧 부족 (필요: ${topics.length}, 보유: ${balance})`)
+      return
+    }
+
+    setBatchGenerating(true)
+    setBatchResult(null)
+
+    try {
+      const res = await fetch('/api/videos/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topics, style }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      setBatchResult({
+        total: data.total,
+        successCount: data.successCount,
+        failCount: data.failCount,
+        results: data.results,
+      })
+
+      setBatchTopics('')
+      setActiveTab('videos')
+      showToast(`🚀 ${data.successCount}개 영상 생성 시작!`)
+    } catch (err) {
+      showToast(`❌ ${err instanceof Error ? err.message : '오류 발생'}`)
+    } finally {
+      setBatchGenerating(false)
     }
   }
 
@@ -186,6 +252,7 @@ export default function DashboardPage() {
   const creditPct = (balance / maxCredits) * 100
   const creditColor = creditPct > 50 ? '#10B981' : creditPct > 20 ? '#F59E0B' : '#EF4444'
   const defaultChannel = channels.find(c => c.is_default) ?? channels[0]
+  const batchTopicCount = batchTopics.split('\n').filter(t => t.trim()).length
 
   return (
     <div
@@ -205,7 +272,6 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* 채널 상태 */}
           <a
             href="/api/auth/youtube"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border cursor-pointer transition-colors ${
@@ -217,13 +283,11 @@ export default function DashboardPage() {
             ▶ {defaultChannel?.channel_name ?? profile?.yt_channel_name ?? '채널 미연동 — 클릭하여 연결'}
           </a>
 
-          {/* 크레딧 */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-[#1F2937] bg-[#111827]">
             ⚡ <span className="font-bold" style={{ color: creditColor }}>{balance}</span>
             <span className="text-gray-600">/ {maxCredits}</span>
           </div>
 
-          {/* 로그아웃 */}
           <form action={signOut}>
             <button
               type="submit"
@@ -272,7 +336,7 @@ export default function DashboardPage() {
       {/* ── Tab Nav ── */}
       <div className="flex px-5 bg-[#0D1117] border-b border-[#111827]">
         {([
-          { id: 'generate', label: '새 영상 생성' },
+          { id: 'generate', label: '영상 생성' },
           { id: 'videos',   label: `내 영상 (${videos.length})` },
           { id: 'channels', label: `채널 (${channels.length})` },
         ] as const).map(tab => (
@@ -301,18 +365,70 @@ export default function DashboardPage() {
               <div className="text-xs text-gray-600 mt-1">Gemini AI + Kling으로 자동 생성</div>
             </div>
 
+            {/* 모드 전환 */}
+            <div className="flex gap-2 p-1 bg-[#111827] rounded-lg border border-[#1F2937]">
+              <button
+                onClick={() => setBatchMode(false)}
+                className={`flex-1 py-2 rounded-md text-xs font-semibold transition-all ${
+                  !batchMode
+                    ? 'bg-[#1E3A5F] text-blue-400 border border-blue-800'
+                    : 'text-gray-600 hover:text-gray-400'
+                }`}
+              >
+                단일 생성
+              </button>
+              <button
+                onClick={() => setBatchMode(true)}
+                className={`flex-1 py-2 rounded-md text-xs font-semibold transition-all ${
+                  batchMode
+                    ? 'bg-[#1E3A5F] text-blue-400 border border-blue-800'
+                    : 'text-gray-600 hover:text-gray-400'
+                }`}
+              >
+                배치 생성 (여러 개)
+              </button>
+            </div>
+
             <div className="bg-[#0D1117] border border-[#1F2937] rounded-xl p-5 space-y-4">
-              {/* 주제 입력 */}
-              <div>
-                <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">주제 입력</label>
-                <textarea
-                  value={topic}
-                  onChange={e => setTopic(e.target.value)}
-                  placeholder="예) 옥천 로컬푸드 농부의 하루, AI가 바꾸는 미래 농업..."
-                  rows={3}
-                  className="w-full bg-[#111827] border border-[#1F2937] rounded-lg px-3 py-2.5 text-sm text-gray-200 placeholder-gray-700 resize-none outline-none focus:border-[#374151] transition-colors"
-                />
-              </div>
+
+              {/* 단일 생성 */}
+              {!batchMode && (
+                <div>
+                  <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">주제 입력</label>
+                  <textarea
+                    value={topic}
+                    onChange={e => setTopic(e.target.value)}
+                    placeholder="예) 옥천 로컬푸드 농부의 하루, AI가 바꾸는 미래 농업..."
+                    rows={3}
+                    className="w-full bg-[#111827] border border-[#1F2937] rounded-lg px-3 py-2.5 text-sm text-gray-200 placeholder-gray-700 resize-none outline-none focus:border-[#374151] transition-colors"
+                  />
+                </div>
+              )}
+
+              {/* 배치 생성 */}
+              {batchMode && (
+                <div>
+                  <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">
+                    주제 목록 (한 줄에 하나씩, 최대 20개)
+                  </label>
+                  <textarea
+                    value={batchTopics}
+                    onChange={e => setBatchTopics(e.target.value)}
+                    placeholder={`옥천 로컬푸드 농부의 하루\n아파트 에어컨 청소 꿀팁\nAI가 바꾸는 미래 농업\n여름 건강관리 방법\n컴퓨터 분해 청소하기`}
+                    rows={8}
+                    className="w-full bg-[#111827] border border-[#1F2937] rounded-lg px-3 py-2.5 text-sm text-gray-200 placeholder-gray-700 resize-none outline-none focus:border-[#374151] transition-colors"
+                  />
+                  <div className="flex justify-between mt-1.5">
+                    <span className="text-[11px] text-gray-600">
+                      {batchTopicCount}개 입력됨
+                      {batchTopicCount > 20 && <span className="text-red-400 ml-1">최대 20개 초과!</span>}
+                    </span>
+                    <span className="text-[11px]" style={{ color: balance >= batchTopicCount ? '#6B7280' : '#EF4444' }}>
+                      필요 크레딧: {batchTopicCount} / 보유: {balance}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* 스타일 선택 */}
               <div>
@@ -335,7 +451,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* 채널 선택 (채널이 2개 이상일 때만 표시) */}
+              {/* 채널 선택 (2개 이상일 때) */}
               {channels.length > 1 && (
                 <div>
                   <label className="block text-[11px] text-gray-600 uppercase tracking-widest mb-2">업로드 채널</label>
@@ -354,22 +470,69 @@ export default function DashboardPage() {
               )}
 
               {/* 생성 버튼 */}
-              <button
-                onClick={handleGenerate}
-                disabled={generating || !topic.trim() || balance < 1}
-                className="w-full py-3.5 rounded-xl text-sm font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{
-                  background: generating || !topic.trim() || balance < 1
-                    ? '#1F2937'
-                    : 'linear-gradient(135deg, #2563EB, #7C3AED)',
-                  color: generating || !topic.trim() || balance < 1 ? '#4B5563' : '#fff',
-                  boxShadow: generating || !topic.trim() || balance < 1
-                    ? 'none' : '0 4px 20px #7C3AED44',
-                }}
-              >
-                {generating ? '⟳ 생성 중...' : balance < 1 ? '크레딧 부족' : '⚡ 쇼츠 생성 시작 (크레딧 1 사용)'}
-              </button>
+              {!batchMode ? (
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating || !topic.trim() || balance < 1}
+                  className="w-full py-3.5 rounded-xl text-sm font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: generating || !topic.trim() || balance < 1
+                      ? '#1F2937'
+                      : 'linear-gradient(135deg, #2563EB, #7C3AED)',
+                    color: generating || !topic.trim() || balance < 1 ? '#4B5563' : '#fff',
+                    boxShadow: generating || !topic.trim() || balance < 1 ? 'none' : '0 4px 20px #7C3AED44',
+                  }}
+                >
+                  {generating ? '⟳ 생성 중...' : balance < 1 ? '크레딧 부족' : '⚡ 쇼츠 생성 시작 (크레딧 1 사용)'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleBatchGenerate}
+                  disabled={batchGenerating || batchTopicCount === 0 || batchTopicCount > 20 || balance < batchTopicCount}
+                  className="w-full py-3.5 rounded-xl text-sm font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: batchGenerating || batchTopicCount === 0 || balance < batchTopicCount
+                      ? '#1F2937'
+                      : 'linear-gradient(135deg, #059669, #2563EB)',
+                    color: batchGenerating || batchTopicCount === 0 || balance < batchTopicCount ? '#4B5563' : '#fff',
+                    boxShadow: batchGenerating || batchTopicCount === 0 ? 'none' : '0 4px 20px #05966944',
+                  }}
+                >
+                  {batchGenerating
+                    ? '⟳ 배치 생성 중... (시간이 걸릴 수 있습니다)'
+                    : batchTopicCount === 0
+                    ? '주제를 입력해 주세요'
+                    : balance < batchTopicCount
+                    ? `크레딧 부족 (${batchTopicCount - balance}개 부족)`
+                    : `⚡ ${batchTopicCount}개 일괄 생성 (크레딧 ${batchTopicCount}개 사용)`}
+                </button>
+              )}
             </div>
+
+            {/* 배치 결과 표시 */}
+            {batchResult && (
+              <div className="bg-[#0D1117] border border-[#1F2937] rounded-xl p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm font-bold text-white">배치 생성 결과</div>
+                  <div className="text-xs text-gray-600">
+                    성공 <span className="text-green-400 font-bold">{batchResult.successCount}</span>
+                    {' / '}
+                    실패 <span className="text-red-400 font-bold">{batchResult.failCount}</span>
+                  </div>
+                </div>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {batchResult.results.map((r, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span>{r.success ? '✅' : '❌'}</span>
+                      <span className={`flex-1 truncate ${r.success ? 'text-gray-300' : 'text-gray-600'}`}>
+                        {r.topic}
+                      </span>
+                      {r.error && <span className="text-red-400 text-[10px] truncate">{r.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -402,7 +565,6 @@ export default function DashboardPage() {
                     key={video.id}
                     className="bg-[#111827] border border-[#1F2937] rounded-xl overflow-hidden hover:border-[#374151] transition-colors"
                   >
-                    {/* 영상 미리보기 */}
                     {isPreviewOpen && video.storage_url && (
                       <div className="bg-black w-full flex items-center justify-center">
                         <video
@@ -446,7 +608,6 @@ export default function DashboardPage() {
                         </span>
                       </div>
 
-                      {/* 업로드 대기 버튼 */}
                       {video.status === 'ready' && (
                         <button
                           onClick={() => handleUpload(video.id)}
@@ -458,7 +619,6 @@ export default function DashboardPage() {
                         </button>
                       )}
 
-                      {/* 업로드 중 */}
                       {video.status === 'uploading' && (
                         <div
                           className="w-full py-2 rounded-lg text-xs font-semibold border text-center"
@@ -468,7 +628,6 @@ export default function DashboardPage() {
                         </div>
                       )}
 
-                      {/* 게시 완료 */}
                       {video.status === 'published' && video.youtube_url && (
                         <a
                           href={video.youtube_url}
@@ -519,7 +678,7 @@ export default function DashboardPage() {
               channels.map(channel => (
                 <div
                   key={channel.id}
-                  className={`bg-[#111827] border rounded-xl p-4 flex items-center gap-3 transition-colors ${
+                  className={`bg-[#111827] border rounded-xl p-4 flex items-center gap-3 transition-colors cursor-pointer ${
                     selectedChannelId === channel.id
                       ? 'border-blue-700'
                       : 'border-[#1F2937] hover:border-[#374151]'
