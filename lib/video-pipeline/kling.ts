@@ -28,6 +28,7 @@ export async function submitKlingJob(videoPrompt: string): Promise<string> {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
+    /*
     body: JSON.stringify({
       model_name: 'kling-v1-6',  // v1 → v1-6 업그레이드
       prompt: videoPrompt,
@@ -36,6 +37,16 @@ export async function submitKlingJob(videoPrompt: string): Promise<string> {
       mode: 'pro',        // std → pro (고품질)
       aspect_ratio: '9:16',
       duration: '10',     // 10초
+    }),
+*/
+    body: JSON.stringify({
+      model_name: 'kling-v2-master',  // v1-6 → v2-master
+      prompt: videoPrompt,
+      negative_prompt: 'blurry, low quality, distorted, watermark, text overlay, ugly, bad anatomy, bad hands, extra fingers, mutated hands, deformed body parts, noise, grainy',
+      cfg_scale: 0.5,
+      mode: 'std',
+      aspect_ratio: '9:16',
+      duration: '5',  // v2는 5초만 지원
     }),
     signal: AbortSignal.timeout(30_000),
   })
