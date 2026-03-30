@@ -29,13 +29,13 @@ export async function submitKlingJob(videoPrompt: string): Promise<string> {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
-      model_name: 'kling-v1',
+      model_name: 'kling-v1-6',  // v1 → v1-6 업그레이드
       prompt: videoPrompt,
-      negative_prompt: 'blurry, low quality, distorted',
+      negative_prompt: 'blurry, low quality, distorted, watermark, text, ugly, bad anatomy, bad proportions',
       cfg_scale: 0.5,
-      mode: 'std',
+      mode: 'pro',        // std → pro (고품질)
       aspect_ratio: '9:16',
-      duration: '10',
+      duration: '10',     // 10초
     }),
     signal: AbortSignal.timeout(30_000),
   })
