@@ -56,6 +56,9 @@ export default function DashboardPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
 
+  // 영상 타입 state (ai | stock)
+  const [videoType, setVideoType] = useState<'ai' | 'stock'>('stock')
+
   // 배치 생성 state
   const [batchMode, setBatchMode] = useState(false)
   const [batchTopics, setBatchTopics] = useState('')
@@ -88,7 +91,7 @@ export default function DashboardPage() {
       setChannels(data ?? [])
       setChannelsLoading(false)
 
-      const defaultCh = data?.find(c => c.is_default)
+      const defaultCh = data?.find((c: YoutubeChannel) => c.is_default)
       if (defaultCh) setSelectedChannelId(defaultCh.id)
     }
     fetchChannels()
@@ -117,7 +120,12 @@ export default function DashboardPage() {
     }
     setGenerating(true)
     try {
-      const res = await fetch('/api/videos/generate', {
+      // 영상 타입에 따라 API 분기
+      const apiUrl = videoType === 'stock'
+        ? '/api/videos/generate-stock'
+        : '/api/videos/generate'
+
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic, style }),
@@ -126,7 +134,7 @@ export default function DashboardPage() {
       if (!res.ok) throw new Error(data.error)
       setTopic('')
       setActiveTab('videos')
-      showToast('🚀 영상 생성이 시작되었습니다!')
+      showToast(`🚀 ${videoType === 'stock' ? '스톡' : 'AI'} 영상 생성이 시작되었습니다!`)
     } catch (err) {
       showToast(`❌ ${err instanceof Error ? err.message : '오류 발생'}`)
     } finally {
@@ -141,14 +149,8 @@ export default function DashboardPage() {
       .map(t => t.trim())
       .filter(t => t.length > 0)
 
-    if (topics.length === 0) {
-      showToast('❌ 주제를 입력해 주세요.')
-      return
-    }
-    if (topics.length > 20) {
-      showToast('❌ 한 번에 최대 20개까지 가능합니다.')
-      return
-    }
+    if (topics.length === 0) { showToast('❌ 주제를 입력해 주세요.'); return }
+    if (topics.length > 20) { showToast('❌ 한 번에 최대 20개까지 가능합니다.'); return }
     if (balance < topics.length) {
       showToast(`❌ 크레딧 부족 (필요: ${topics.length}, 보유: ${balance})`)
       return
@@ -161,7 +163,7 @@ export default function DashboardPage() {
       const res = await fetch('/api/videos/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topics, style }),
+        body: JSON.stringify({ topics, style, videoType }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -362,10 +364,59 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <div>
               <div className="text-base font-bold text-white">쇼츠 영상 생성</div>
-              <div className="text-xs text-gray-600 mt-1">Gemini AI + Kling으로 자동 생성</div>
+              <div className="text-xs text-gray-600 mt-1">Gemini AI + Kling 또는 Pexels 스톡 영상으로 자동 생성</div>
             </div>
 
-            {/* 모드 전환 */}
+            {/* ── 영상 타입 선택 ── */}
+            <div className="flex gap-2 p-1 bg-[#111827] rounded-lg border border-[#1F2937]">
+              <button
+                onClick={() => setVideoType('stock')}
+                className={`flex-1 py-2.5 rounded-md text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                  videoType === 'stock'
+                    ? 'bg-[#0A1F17] text-green-400 border border-green-800'
+                    : 'text-gray-600 hover:text-gray-400'
+                }`}
+              >
+                📹 스톡 영상
+                <span className={`px-1.5 py-0.5 rounded text-[10px] ${videoType === 'stock' ? 'bg-green-900 text-green-300' : 'bg-[#1F2937] text-gray-600'}`}>
+                  고품질
+                </span>
+              </button>
+              <button
+                onClick={() => setVideoType('ai')}
+                className={`flex-1 py-2.5 rounded-md text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                  videoType === 'ai'
+                    ? 'bg-[#1E3A5F] text-blue-400 border border-blue-800'
+                    : 'text-gray-600 hover:text-gray-400'
+                }`}
+              >
+                🤖 AI 영상
+                <span className={`px-1.5 py-0.5 rounded text-[10px] ${videoType === 'ai' ? 'bg-blue-900 text-blue-300' : 'bg-[#1F2937] text-gray-600'}`}>
+                  Kling
+                </span>
+              </button>
+            </div>
+
+            {/* 선택된 타입 설명 */}
+            {videoType === 'stock' ? (
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-[#0A1F17] border border-green-900 rounded-lg">
+                <span className="text-green-400 text-sm mt-0.5">✓</span>
+                <div>
+                  <div className="text-xs font-semibold text-green-400">Pexels 스톡 영상 방식</div>
+                  <div className="text-[11px] text-green-700 mt-0.5">실사 고품질 영상 + TTS 나레이션 + 자막 자동 합성 (30~60초)</div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-[#0F1C2E] border border-blue-900 rounded-lg">
+                <span className="text-blue-400 text-sm mt-0.5">✓</span>
+                <div>
+                  <div className="text-xs font-semibold text-blue-400">Kling AI 영상 방식</div>
+                  <div className="text-[11px] text-blue-700 mt-0.5">AI가 프롬프트로 영상 생성 (5~10초, 크레딧 소모)</div>
+                </div>
+              </div>
+            )}
+
+            {/* ── 단일/배치 모드 전환 ── */}
             <div className="flex gap-2 p-1 bg-[#111827] rounded-lg border border-[#1F2937]">
               <button
                 onClick={() => setBatchMode(false)}
@@ -478,12 +529,22 @@ export default function DashboardPage() {
                   style={{
                     background: generating || !topic.trim() || balance < 1
                       ? '#1F2937'
-                      : 'linear-gradient(135deg, #2563EB, #7C3AED)',
+                      : videoType === 'stock'
+                        ? 'linear-gradient(135deg, #059669, #0284C7)'
+                        : 'linear-gradient(135deg, #2563EB, #7C3AED)',
                     color: generating || !topic.trim() || balance < 1 ? '#4B5563' : '#fff',
-                    boxShadow: generating || !topic.trim() || balance < 1 ? 'none' : '0 4px 20px #7C3AED44',
+                    boxShadow: generating || !topic.trim() || balance < 1
+                      ? 'none'
+                      : videoType === 'stock' ? '0 4px 20px #05966944' : '0 4px 20px #7C3AED44',
                   }}
                 >
-                  {generating ? '⟳ 생성 중...' : balance < 1 ? '크레딧 부족' : '⚡ 쇼츠 생성 시작 (크레딧 1 사용)'}
+                  {generating
+                    ? '⟳ 생성 중...'
+                    : balance < 1
+                    ? '크레딧 부족'
+                    : videoType === 'stock'
+                    ? '📹 스톡 영상 생성 시작 (크레딧 1 사용)'
+                    : '🤖 AI 영상 생성 시작 (크레딧 1 사용)'}
                 </button>
               ) : (
                 <button
@@ -493,23 +554,22 @@ export default function DashboardPage() {
                   style={{
                     background: batchGenerating || batchTopicCount === 0 || balance < batchTopicCount
                       ? '#1F2937'
-                      : 'linear-gradient(135deg, #059669, #2563EB)',
+                      : videoType === 'stock'
+                        ? 'linear-gradient(135deg, #059669, #0284C7)'
+                        : 'linear-gradient(135deg, #059669, #2563EB)',
                     color: batchGenerating || batchTopicCount === 0 || balance < batchTopicCount ? '#4B5563' : '#fff',
-                    boxShadow: batchGenerating || batchTopicCount === 0 ? 'none' : '0 4px 20px #05966944',
                   }}
                 >
                   {batchGenerating
-                    ? '⟳ 배치 생성 중... (시간이 걸릴 수 있습니다)'
-                    : batchTopicCount === 0
-                    ? '주제를 입력해 주세요'
-                    : balance < batchTopicCount
-                    ? `크레딧 부족 (${batchTopicCount - balance}개 부족)`
+                    ? '⟳ 배치 생성 중...'
+                    : batchTopicCount === 0 ? '주제를 입력해 주세요'
+                    : balance < batchTopicCount ? `크레딧 부족 (${batchTopicCount - balance}개 부족)`
                     : `⚡ ${batchTopicCount}개 일괄 생성 (크레딧 ${batchTopicCount}개 사용)`}
                 </button>
               )}
             </div>
 
-            {/* 배치 결과 표시 */}
+            {/* 배치 결과 */}
             {batchResult && (
               <div className="bg-[#0D1117] border border-[#1F2937] rounded-xl p-4 space-y-3">
                 <div className="flex justify-between items-center">
@@ -560,11 +620,13 @@ export default function DashboardPage() {
                 const s = STATUS_MAP[video.status] ?? STATUS_MAP.draft
                 const isUploading = uploadingId === video.id
                 const isPreviewOpen = previewId === video.id
+                const isStock = (video as any).video_type === 'stock'
                 return (
                   <div
                     key={video.id}
                     className="bg-[#111827] border border-[#1F2937] rounded-xl overflow-hidden hover:border-[#374151] transition-colors"
                   >
+                    {/* 영상 미리보기 */}
                     {isPreviewOpen && video.storage_url && (
                       <div className="bg-black w-full flex items-center justify-center">
                         <video
@@ -595,8 +657,15 @@ export default function DashboardPage() {
                           <div className="text-sm font-semibold text-gray-200 truncate">
                             {video.title ?? video.topic}
                           </div>
-                          <div className="text-[11px] text-gray-600 mt-0.5">
-                            {video.style} · {new Date(video.created_at).toLocaleDateString('ko-KR')}
+                          <div className="text-[11px] text-gray-600 mt-0.5 flex items-center gap-1.5">
+                            <span>{video.style}</span>
+                            <span>·</span>
+                            <span>{new Date(video.created_at).toLocaleDateString('ko-KR')}</span>
+                            {isStock && (
+                              <span className="px-1.5 py-0.5 rounded bg-[#0A1F17] border border-green-900 text-green-500 text-[10px]">
+                                📹 스톡
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -608,6 +677,20 @@ export default function DashboardPage() {
                         </span>
                       </div>
 
+                      {/* TTS 나레이션 미리듣기 */}
+                      {(video as any).audio_url && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-[#0D1117] rounded-lg border border-[#1F2937]">
+                          <span className="text-[11px] text-gray-600 flex-shrink-0">🎙 나레이션</span>
+                          <audio
+                            src={(video as any).audio_url}
+                            controls
+                            className="flex-1 h-7"
+                            style={{ minWidth: 0 }}
+                          />
+                        </div>
+                      )}
+
+                      {/* 업로드 대기 버튼 */}
                       {video.status === 'ready' && (
                         <button
                           onClick={() => handleUpload(video.id)}
@@ -619,6 +702,7 @@ export default function DashboardPage() {
                         </button>
                       )}
 
+                      {/* 업로드 중 */}
                       {video.status === 'uploading' && (
                         <div
                           className="w-full py-2 rounded-lg text-xs font-semibold border text-center"
@@ -628,6 +712,7 @@ export default function DashboardPage() {
                         </div>
                       )}
 
+                      {/* 게시 완료 */}
                       {video.status === 'published' && video.youtube_url && (
                         <a
                           href={video.youtube_url}

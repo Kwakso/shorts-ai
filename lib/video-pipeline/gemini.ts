@@ -47,3 +47,17 @@ export async function generateVideoScript(
     throw new Error(`Gemini 응답 파싱 실패: ${text.slice(0, 500)}`)
   }
 }
+
+export interface ScriptResult {
+  title: string
+  description: string
+  script: string
+  videoPrompt: string
+  searchKeywords: string[]  // ← 추가 (Pexels 검색용)
+  tags: string[]
+}
+
+// 프롬프트에 searchKeywords 추가
+const prompt = `...
+{"title":"...","description":"...","script":"...","videoPrompt":"...","searchKeywords":["영어키워드1","영어키워드2","영어키워드3"],"tags":[...]}
+`
