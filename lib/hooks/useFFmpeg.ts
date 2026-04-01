@@ -49,7 +49,8 @@ export function useFFmpeg() {
     ])
 
     const data = await ffmpeg.readFile('output.mp4')
-    return new Blob([data as Uint8Array], { type: 'video/mp4' })
+    const buffer = Buffer.from(data as Uint8Array)
+    return new Blob([buffer], { type: 'video/mp4' })
   }
 
   return { composeVideo, progress, loaded }
