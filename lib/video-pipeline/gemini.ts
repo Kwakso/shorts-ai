@@ -2,7 +2,6 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 
-// ─── 스타일별 전용 프롬프트 ───────────────────────────────────
 const STYLE_PROMPTS: Record<string, string> = {
   cinematic:   'Cinematic film quality, anamorphic lens, shallow depth of field, professional color grading, dramatic lighting, movie-like composition, Hollywood style',
   documentary: 'Documentary style, natural lighting, handheld camera feel, authentic atmosphere, realistic environment, journalistic approach, observational filmmaking',
@@ -29,28 +28,38 @@ export async function generateVideoScript(
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
     generationConfig: {
-      maxOutputTokens: 1024,
+      maxOutputTokens: 4096,
       temperature: 0.7,
+      responseMimeType: 'application/json',
     },
   })
 
-  const styleGuide = STYLE_PROMPTS[style] ?? STYLE_PROMPTS.cinematic
+  const styleGuide = STYLE_PROMPTS[style] ?? STYLE_PROMPTS.realistic
+  const lang = language === 'ko' ? '한국어' : 'English' // ← lang 변수 선언
 
-  const prompt = `YouTube Shorts 콘텐츠를 만들어주세요.
-주제: "${topic}"
-스타일: ${style}
-언어: ${language === 'ko' ? '한국어' : 'English'}
+  const prompt = `주제:"${topic}" 스타일:${style} 언어:${lang}
 
-반드시 아래 JSON만 출력하세요. 마크다운이나 코드블록 없이 순수 JSON만:
-{"title":"제목(50자이내,#Shorts포함)","description":"설명(150자이내,해시태그포함)","script":"나레이션(80자이내,핵심만간결하게)","videoPrompt":"${styleGuide}. Vertical 9:16 format. Ultra detailed scene description for AI video generation about ${topic}: specific subjects, precise lighting setup, camera angle and movement, color palette, background environment, emotional atmosphere, cinematic composition. 80-100 words in English.","searchKeywords":["영어키워드1","영어키워드2","영어키워드3","영어키워드4","영어키워드5"],"tags":["태그1","태그2","Shorts","YouTubeShorts","쇼츠"]}`
+다음 JSON 형식으로만 응답하세요:
+{
+  "title": "#Shorts 포함 20자 이내 제목",
+  "description": "50자 이내 설명 해시태그 포함",
+  "script": "30자 이내 나레이션",
+  "videoPrompt": "${styleGuide} vertical 9:16 about ${topic} 20 words",
+  "searchKeywords": ["영어키워드1", "영어키워드2", "영어키워드3"],
+  "tags": ["한국어태그", "Shorts", "YouTubeShorts"]
+}`
 
   const result = await model.generateContent(prompt)
   const raw = result.response.text()
+  console.log('[Gemini 전체 응답]:', raw)
 
   // 코드블록 제거 후 JSON 추출
-  const cleaned = raw.replace(/```json\n?|```\n?/g, '').trim()
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  const cleaned = raw
+    .replace(/```json\n?/g, '')
+    .replace(/```\n?/g, '')
+    .trim()
 
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (!jsonMatch) {
     throw new Error(`JSON을 찾을 수 없습니다: ${raw.slice(0, 200)}`)
   }
@@ -58,7 +67,6 @@ export async function generateVideoScript(
   try {
     const parsed = JSON.parse(jsonMatch[0]) as ScriptResult
 
-    // searchKeywords 없으면 기본값 설정
     if (!parsed.searchKeywords || parsed.searchKeywords.length === 0) {
       parsed.searchKeywords = [topic, style, 'nature', 'lifestyle', 'korea']
     }
