@@ -17,7 +17,7 @@ export interface ScriptResult {
   description: string
   script: string
   videoPrompt: string
-  searchKeywords: string[]  // Pexels 스톡 영상 검색용 영어 키워드
+  searchKeywords: string[]
   tags: string[]
 }
 
@@ -41,14 +41,16 @@ export async function generateVideoScript(
 스타일: ${style}
 언어: ${language === 'ko' ? '한국어' : 'English'}
 
-반드시 아래 JSON만 출력하세요. 코드블록 없이 순수 JSON만:
+반드시 아래 JSON만 출력하세요. 마크다운이나 코드블록 없이 순수 JSON만:
 {"title":"제목(50자이내,#Shorts포함)","description":"설명(150자이내,해시태그포함)","script":"나레이션(80자이내,핵심만간결하게)","videoPrompt":"${styleGuide}. Vertical 9:16 format. Ultra detailed scene description for AI video generation about ${topic}: specific subjects, precise lighting setup, camera angle and movement, color palette, background environment, emotional atmosphere, cinematic composition. 80-100 words in English.","searchKeywords":["영어키워드1","영어키워드2","영어키워드3","영어키워드4","영어키워드5"],"tags":["태그1","태그2","Shorts","YouTubeShorts","쇼츠"]}`
 
   const result = await model.generateContent(prompt)
   const raw = result.response.text()
 
-  // JSON 추출
-  const jsonMatch = raw.match(/\{[\s\S]*\}/)
+  // 코드블록 제거 후 JSON 추출
+  const cleaned = raw.replace(/```json\n?|```\n?/g, '').trim()
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+
   if (!jsonMatch) {
     throw new Error(`JSON을 찾을 수 없습니다: ${raw.slice(0, 200)}`)
   }
@@ -56,7 +58,7 @@ export async function generateVideoScript(
   try {
     const parsed = JSON.parse(jsonMatch[0]) as ScriptResult
 
-    // searchKeywords 없으면 topic으로 기본값 설정
+    // searchKeywords 없으면 기본값 설정
     if (!parsed.searchKeywords || parsed.searchKeywords.length === 0) {
       parsed.searchKeywords = [topic, style, 'nature', 'lifestyle', 'korea']
     }
